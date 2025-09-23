@@ -1,4 +1,4 @@
-using Application.Commands;
+﻿using Application.Commands;
 using Application.Queries;
 using Domain.Configuration;
 using Domain.Repositories;
@@ -36,7 +36,8 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-builder.Services.AddDbContext<AppDbContext>(opt => opt.UseInMemoryDatabase("FullstackDemoDb"), ServiceLifetime.Singleton);
+builder.Services.AddDbContext<AppDbContext>(opt => opt.UseInMemoryDatabase("FullstackDemoDb"), 
+    ServiceLifetime.Singleton);
 
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 
@@ -78,6 +79,14 @@ else
 builder.Services.Configure<DevelopmentUserOptions>
     (builder.Configuration.GetSection(DevelopmentUserOptions.DevelopmentUser));
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAngular",
+        policy => policy.WithOrigins("http://localhost:4200", "https://localhost:4200")
+                        .AllowAnyHeader()
+                        .AllowAnyMethod());
+});
+
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
@@ -85,19 +94,19 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     if (!db.Users.Any())
     {
-        var pw = Convert.ToHexString(System.Security.Cryptography.SHA256.Create().ComputeHash(System.Text.Encoding.UTF8.GetBytes("Password123!")));
-        db.Users.Add(new Domain.Entities.User("Demo User", "demo@example.com", pw));
+        var pw = Convert.ToHexString(System.Security.Cryptography.SHA256.Create().ComputeHash(System.Text.Encoding.UTF8.GetBytes("admin")));
+        db.Users.Add(new Domain.Entities.User("admin", "admin@example.com", pw));
         db.SaveChanges();
     }
 }
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+app.UseSwagger();
+app.UseSwaggerUI();
 
+app.UseRouting();
+app.UseCors("AllowAngular");   
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+
 app.Run();
