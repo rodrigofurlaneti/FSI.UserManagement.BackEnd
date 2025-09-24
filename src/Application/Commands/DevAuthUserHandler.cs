@@ -25,11 +25,9 @@ namespace Application.Commands
 
         public Task<string> Handle(AuthUserCommand request, CancellationToken cancellationToken)
         {
-            // ⚡ 1. Validar o usuário vindo do appsettings.json
-            if (request.Email != _devUser.Username || request.Password != _devUser.Password)
+            if (request.Email != _devUser.Email || request.Password != _devUser.Password)
                 throw new UnauthorizedAccessException("Invalid credentials");
 
-            // ⚡ 2. Pegar configurações do JWT
             var jwtSettings = _configuration.GetSection("Jwt");
 
             var key = jwtSettings["Key"];

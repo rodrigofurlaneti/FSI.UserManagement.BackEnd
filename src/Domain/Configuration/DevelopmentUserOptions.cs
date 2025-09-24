@@ -2,8 +2,9 @@
 {
     public class DevelopmentUserOptions
     {
-        public const string DevelopmentUser = "DevelopmentUser"; 
-        public string Email { get; set; } = string.Empty;
-        public string Password { get; set; } = string.Empty;
+        public const string DevelopmentUser = "DevelopmentUser";
+        public string Username { get; set; } = null!;
+        public string Email { get; set; } = null!;
+        public string Password { get; set; } = null!;
     }
 }

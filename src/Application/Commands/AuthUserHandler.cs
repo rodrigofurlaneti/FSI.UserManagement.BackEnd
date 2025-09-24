@@ -23,7 +23,7 @@ namespace Application.Commands
             _configuration = configuration;
         }
 
-        public async Task<string> Handle(AuthUserCommand request, CancellationToken cancellationToken)
+        public Task<string> Handle(AuthUserCommand request, CancellationToken cancellationToken)
         {
             var user = _userRepository.GetByEmail(request.Email);
             if (user == null) throw new UnauthorizedAccessException("Invalid credentials");
@@ -58,7 +58,8 @@ namespace Application.Commands
                 signingCredentials: creds
             );
 
-            return new JwtSecurityTokenHandler().WriteToken(token);
+            var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+            return Task.FromResult(tokenString);
         }
 
         private static string HashPassword(string password)

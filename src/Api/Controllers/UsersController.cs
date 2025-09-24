@@ -8,13 +8,14 @@ using Microsoft.AspNetCore.Authorization;
 namespace Api.Controllers
 {
     [ApiController]
-    [Route("[controller]")]
+    [Route("api/[controller]")]
     public class UsersController : ControllerBase
     {
         private readonly IMediator _mediator;
         public UsersController(IMediator mediator) => _mediator = mediator;
 
         [HttpPost]
+        [Authorize]
         public async Task<ActionResult<UserDto>> Create([FromBody] CreateUserCommand command)
         {
             try

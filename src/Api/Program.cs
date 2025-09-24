@@ -17,35 +17,57 @@ builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnC
 // Add services
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "Fullstack Backend API", Version = "v1" });
+    c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "Fullstack Backend API - Test => Email:admin@example.com Password:admin",
+        Version = "v1"
+    });
+
     var jwtScheme = new OpenApiSecurityScheme
     {
         Name = "Authorization",
         Type = SecuritySchemeType.Http,
-        Scheme = "bearer",
+        Scheme = "bearer",           // 👈 importante estar "bearer"
         BearerFormat = "JWT",
         In = ParameterLocation.Header,
-        Description = "JWT Authorization header using the Bearer scheme. Test => User admin Password admin"
+        Description = "Digite: Bearer {seu token JWT} "
     };
-    c.AddSecurityDefinition("bearerAuth", jwtScheme);
+
+    c.AddSecurityDefinition("Bearer", jwtScheme);
+
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
-        { jwtScheme, new string[] { } }
+        { new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
     });
 });
 
-builder.Services.AddDbContext<AppDbContext>(opt => opt.UseInMemoryDatabase("FullstackDemoDb"), 
-    ServiceLifetime.Singleton);
+builder.Services.AddDbContext<AppDbContext>(opt =>
+    opt.UseInMemoryDatabase("FullstackDemoDb"), // memória primeiro
+    ServiceLifetime.Scoped);
+
+builder.Services.AddDbContext<AppDbContextMySql>(opt =>
+    opt.UseMySql(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        new MySqlServerVersion(new Version(8, 0, 36))
+    ),
+    ServiceLifetime.Scoped);
 
 builder.Services.AddScoped<IUserRepository, UserRepository>();
-
 builder.Services.AddScoped(typeof(IRepository<>), typeof(EfRepositorySync<>));
 
-builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblies(
-    typeof(CreateUserCommand).Assembly,
-    typeof(GetUsersQuery).Assembly));
+builder.Services.AddMediatR(typeof(CreateUserCommand).Assembly, typeof(GetUsersQuery).Assembly);
 
 var jwt = builder.Configuration.GetSection("Jwt");
 var key = Encoding.UTF8.GetBytes(jwt.GetValue<string>("Key"));
@@ -67,17 +89,8 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-if (builder.Environment.IsDevelopment())
-{
-    builder.Services.AddScoped<IRequestHandler<AuthUserCommand, string>, DevAuthUserHandler>();
-}
-else
-{
-    builder.Services.AddScoped<IRequestHandler<AuthUserCommand, string>, AuthUserHandler>();
-}
-
-builder.Services.Configure<DevelopmentUserOptions>
-    (builder.Configuration.GetSection(DevelopmentUserOptions.DevelopmentUser));
+builder.Services.Configure<DevelopmentUserOptions>(
+    builder.Configuration.GetSection(DevelopmentUserOptions.DevelopmentUser));
 
 builder.Services.AddCors(options =>
 {
@@ -92,10 +105,20 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+    var devUserConfig = builder.Configuration.GetSection("DevelopmentUser");
+    var username = devUserConfig.GetValue<string>("Username") ?? string.Empty;
+    var email = devUserConfig.GetValue<string>("Email") ?? string.Empty;
+    var password = devUserConfig.GetValue<string>("Password") ?? string.Empty;
+
     if (!db.Users.Any())
     {
-        var pw = Convert.ToHexString(System.Security.Cryptography.SHA256.Create().ComputeHash(System.Text.Encoding.UTF8.GetBytes("admin")));
-        db.Users.Add(new Domain.Entities.User("admin", "admin@example.com", pw));
+        var pw = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.Create()
+                .ComputeHash(Encoding.UTF8.GetBytes(password))
+        );
+
+        db.Users.Add(new Domain.Entities.User(username, email, pw));
         db.SaveChanges();
     }
 }
@@ -104,7 +127,7 @@ app.UseSwagger();
 app.UseSwaggerUI();
 
 app.UseRouting();
-app.UseCors("AllowAngular");   
+app.UseCors("AllowAngular");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
