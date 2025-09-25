@@ -23,9 +23,7 @@ namespace Infrastructure.Repositories
 
         public void Insert(User user)
         {
-            _memoryDb.Users.Add(user);
-            _memoryDb.SaveChanges();
-
+            // 1. Insert no MySQL primeiro
             var nameParam = new MySqlParameter("@p_name", user.Name);
             var emailParam = new MySqlParameter("@p_email", user.Email);
             var passwordParam = new MySqlParameter("@p_passwordHash", user.PasswordHash);
@@ -35,53 +33,50 @@ namespace Infrastructure.Repositories
             _mysqlDb.Database.ExecuteSqlRaw(
                 "CALL sp_InsertUser(@p_id, @p_name, @p_email, @p_passwordHash, @p_createdAt)",
                 idParam, nameParam, emailParam, passwordParam, createdAtParam);
+
+            // 2. Atualiza o cache
+            _memoryDb.Users.Add(user);
+            _memoryDb.SaveChanges();
         }
 
         public bool EmailExists(string email)
         {
-            var existsInMemory = _memoryDb.Users.Any(u => u.Email.ToLower() == email.ToLower());
-            if (existsInMemory) return true;
+            // Sincroniza cache antes de verificar
+            SyncCacheIfNeeded();
 
-            return _mysqlDb.Users.Any(u => u.Email.ToLower() == email.ToLower());
+            return _memoryDb.Users.Any(u => u.Email.ToLower() == email.ToLower());
         }
 
         public IEnumerable<User> GetAll()
         {
-            var memoryUsers = _memoryDb.Users.AsNoTracking().ToList();
+            // Sincroniza cache antes de retornar
+            SyncCacheIfNeeded();
 
-            if (!memoryUsers.Any())
-            {
-                return _mysqlDb.Users.AsNoTracking().ToList();
-            }
-
-            return memoryUsers;
+            return _memoryDb.Users.AsNoTracking().ToList();
         }
 
         public User? GetByEmail(string email)
         {
-            var userInMemory = _memoryDb.Users.AsNoTracking()
-                .FirstOrDefault(u => u.Email.ToLower() == email.ToLower());
+            // Sincroniza cache antes de buscar
+            SyncCacheIfNeeded();
 
-            if (userInMemory != null) return userInMemory;
-
-            return _mysqlDb.Users.AsNoTracking()
+            return _memoryDb.Users.AsNoTracking()
                 .FirstOrDefault(u => u.Email.ToLower() == email.ToLower());
         }
 
         public User? GetById(Guid id)
         {
-            var userInMemory = _memoryDb.Users.Find(id);
-            if (userInMemory != null) return userInMemory;
+            // Sincroniza cache antes de buscar
+            SyncCacheIfNeeded();
 
-            return _mysqlDb.Users.Find(id);
+            return _memoryDb.Users.Find(id);
         }
 
         public void Update(User entity)
         {
             entity.SetUpdated();
-            _memoryDb.Users.Update(entity);
-            _memoryDb.SaveChanges();
 
+            // 1. Update no MySQL primeiro
             var idParam = new MySqlParameter("@p_id", entity.Id.ToString());
             var nameParam = new MySqlParameter("@p_name", entity.Name);
             var emailParam = new MySqlParameter("@p_email", entity.Email);
@@ -91,40 +86,54 @@ namespace Infrastructure.Repositories
             _mysqlDb.Database.ExecuteSqlRaw(
                 "CALL sp_UpdateUser(@p_id, @p_name, @p_email, @p_passwordHash, @p_updatedAt)",
                 idParam, nameParam, emailParam, passwordParam, updatedAtParam);
+
+            // 2. Atualiza no cache
+            var cachedUser = _memoryDb.Users.Find(entity.Id);
+            if (cachedUser != null)
+            {
+                _memoryDb.Entry(cachedUser).CurrentValues.SetValues(entity);
+            }
+            else
+            {
+                _memoryDb.Users.Add(entity);
+            }
+            _memoryDb.SaveChanges();
         }
 
         public void Delete(Guid id)
         {
+            // 1. Delete no MySQL primeiro
+            var idParam = new MySqlParameter("@p_id", id.ToString());
+            _mysqlDb.Database.ExecuteSqlRaw("CALL sp_DeleteUser(@p_id)", idParam);
+
+            // 2. Remove do cache
             var userInMemory = _memoryDb.Users.Find(id);
             if (userInMemory != null)
             {
                 _memoryDb.Users.Remove(userInMemory);
                 _memoryDb.SaveChanges();
             }
-
-            var idParam = new MySqlParameter("@p_id", id.ToString());
-            _mysqlDb.Database.ExecuteSqlRaw("CALL sp_DeleteUser(@p_id)", idParam);
         }
 
         public bool Exists(Expression<Func<User, bool>> predicate)
         {
-            var existsInMemory = _memoryDb.Users.AsNoTracking().Any(predicate);
-            if (existsInMemory) return true;
+            // Sincroniza cache antes de verificar
+            SyncCacheIfNeeded();
 
-            return _mysqlDb.Users.AsNoTracking().Any(predicate);
+            return _memoryDb.Users.AsNoTracking().Any(predicate);
         }
 
         public IEnumerable<User> Find(Expression<Func<User, bool>> predicate)
         {
-            var memoryResults = _memoryDb.Users.AsNoTracking().Where(predicate).ToList();
+            // Sincroniza cache antes de buscar
+            SyncCacheIfNeeded();
 
-            if (memoryResults.Any()) return memoryResults;
-
-            return _mysqlDb.Users.AsNoTracking().Where(predicate).ToList();
+            return _memoryDb.Users.AsNoTracking().Where(predicate).ToList();
         }
 
         public PaginatedResult<User> GetPaged(int page, int pageSize, Expression<Func<User, bool>>? predicate = null)
         {
+            // Para paginação, usa diretamente o MySQL para performance
             var query = _mysqlDb.Users.AsQueryable();
 
             if (predicate != null)
@@ -144,6 +153,24 @@ namespace Infrastructure.Repositories
                 PageSize: pageSize,
                 TotalCount: totalCount
             );
+        }
+
+        private void SyncCacheIfNeeded()
+        {
+            // Verifica se o cache está vazio ou desatualizado
+            var cacheCount = _memoryDb.Users.Count();
+            var dbCount = _mysqlDb.Users.Count();
+
+            if (cacheCount == 0 || cacheCount != dbCount)
+            {
+                // Limpa o cache atual
+                _memoryDb.Users.RemoveRange(_memoryDb.Users);
+
+                // Carrega todos os dados do MySQL para o cache
+                var allUsers = _mysqlDb.Users.AsNoTracking().ToList();
+                _memoryDb.Users.AddRange(allUsers);
+                _memoryDb.SaveChanges();
+            }
         }
     }
 }

@@ -4,7 +4,7 @@ namespace Application.Commands
 {
     public class AuthUserCommand : IRequest<string>
     {
-        public string Email { get; init; } = null!;
-        public string Password { get; init; } = null!;
+        public string Email { get; set; } = default!;
+        public string Password { get; set; } = default!;
     }
 }
